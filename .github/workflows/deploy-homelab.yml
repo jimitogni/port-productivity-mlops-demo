@@ -73,12 +73,63 @@ jobs:
             "${{ secrets.HOMELAB_USER }}@${{ secrets.HOMELAB_HOST }}:/tmp/port-productivity-mlops-demo.tgz"
       
       - name: Deploy over SSH
+        env:
+          HOMELAB_SSH_PORT: ${{ secrets.HOMELAB_SSH_PORT }}
+          HOMELAB_HOST: ${{ secrets.HOMELAB_HOST }}
+          HOMELAB_USER: ${{ secrets.HOMELAB_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
-          ssh -i ~/.ssh/homelab_key -p "${{ secrets.HOMELAB_SSH_PORT }}" "${{ secrets.HOMELAB_USER }}@${{ secrets.HOMELAB_HOST }}" \
-            "mkdir -p '${{ secrets.DEPLOY_PATH }}' && \
-             tar -xzf /tmp/port-productivity-mlops-demo.tgz -C '${{ secrets.DEPLOY_PATH }}' && \
-             cd '${{ secrets.DEPLOY_PATH }}' && \
-             if [ ! -f .env ]; then cp .env.example .env; fi && \
-             docker compose --env-file .env -f docker-compose.demo.yml pull || true && \
-             docker compose --env-file .env -f docker-compose.demo.yml up -d --build && \
-             curl -fsS http://127.0.0.1:80/ports-mlops/health -H 'Host: jimitogni.duckdns.org:8888'"
+          set -euo pipefail
+
+          if [ -z "$DEPLOY_PATH" ]; then
+            echo "ERROR: DEPLOY_PATH secret is empty or not configured."
+            exit 1
+          fi
+
+          ssh -i ~/.ssh/homelab_key \
+            -o IdentitiesOnly=yes \
+            -p "$HOMELAB_SSH_PORT" \
+            "$HOMELAB_USER@$HOMELAB_HOST" \
+            "DEPLOY_PATH='$DEPLOY_PATH' bash -se" <<'REMOTE'
+              set -euo pipefail
+
+              echo "====DEPLOYING APPLICATION===="
+              echo "Deploy path: $DEPLOY_PATH"
+
+              mkdir -p "$DEPLOY_PATH"
+              tar -xzf /tmp/port-productivity-mlops-demo.tgz -C "$DEPLOY_PATH"
+
+              cd "$DEPLOY_PATH"
+
+              if [ ! -f .env ]; then
+                if [ -f .env.example ]; then
+                  cp .env.example .env
+                else
+                  echo "ERROR: .env does not exist and .env.example was not found."
+                  exit 1
+                fi
+              fi
+
+              echo "====BUILDING AND STARTING CONTAINERS===="
+              docker compose --env-file .env -f docker-compose.demo.yml up -d --build --remove-orphans
+
+              echo "====CONTAINER STATUS===="
+              docker compose --env-file .env -f docker-compose.demo.yml ps
+
+              echo "====WAITING FOR HEALTHCHECK===="
+              for i in {1..30}; do
+                if curl -fsS http://127.0.0.1:80/ports-mlops/health -H 'Host: jimitogni.duckdns.org'; then
+                  echo "Application is healthy"
+                  exit 0
+                fi
+
+                echo "Healthcheck failed, retrying in 2 seconds..."
+                sleep 2
+              done
+
+              echo "====APPLICATION LOGS===="
+              docker compose --env-file .env -f docker-compose.demo.yml logs --tail=200
+
+              echo "ERROR: Application did not become healthy."
+              exit 1
+       REMOTE
