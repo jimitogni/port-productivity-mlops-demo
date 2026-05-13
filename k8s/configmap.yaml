@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: port-productivity-config
+  namespace: port-productivity-mlops
+data:
+  PROJECT_ROOT: /app
+  DATA_DIR: /app/data
+  REPORTS_DIR: /app/reports
+  MODELS_DIR: /app/models
+  MODEL_NAME: port_productivity_forecaster
+  EXPECTED_TERMINALS: T1,T2,T3,T4
+  FEATURE_VERSION: v1
+  PIPELINE_VERSION: v1
+  PUBLIC_PATH_PREFIX: /ports-mlops
+

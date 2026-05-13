@@ -1,0 +1,79 @@
+name: Deploy Homelab
+
+on:
+  workflow_run:
+    workflows: ["Build and Push Image"]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Deployment mode
+        required: true
+        default: ssh
+        type: choice
+        options:
+          - ssh
+          - self-hosted
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-self-hosted:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'self-hosted' }}
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy with local Docker Compose
+        run: |
+          if [ ! -f .env ]; then cp .env.example .env; fi
+          docker compose --env-file .env -f docker-compose.demo.yml pull || true
+          docker compose --env-file .env -f docker-compose.demo.yml up -d --build
+          curl -fsS http://127.0.0.1:80/ports-mlops/health -H 'Host: jimitogni.duckdns.org:8888'
+
+  deploy-ssh:
+    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') || (github.event_name == 'workflow_dispatch' && inputs.mode == 'ssh') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HOMELAB_SSH_KEY }}" > ~/.ssh/homelab_key
+          chmod 600 ~/.ssh/homelab_key
+          ssh-keyscan -p "${{ secrets.HOMELAB_SSH_PORT }}" "${{ secrets.HOMELAB_HOST }}" >> ~/.ssh/known_hosts
+      - name: Package deployment files
+        run: |
+          tar \
+            --exclude='.git' \
+            --exclude='.env' \
+            --exclude='.venv' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='.pytest_cache' \
+            --exclude='.mypy_cache' \
+            --exclude='data/raw/*.csv' \
+            --exclude='data/processed/*.csv' \
+            --exclude='data/predictions/*.csv' \
+            --exclude='data/monitoring/*.csv' \
+            --exclude='data/monitoring/*.prom' \
+            --exclude='reports/evidently/*.html' \
+            --exclude='models/*' \
+            --exclude='mlruns' \
+            -czf /tmp/port-productivity-mlops-demo.tgz .
+      - name: Upload deployment bundle
+        run: |
+          scp -i ~/.ssh/homelab_key -P "${{ secrets.HOMELAB_SSH_PORT }}" \
+            /tmp/port-productivity-mlops-demo.tgz \
+            "${{ secrets.HOMELAB_USER }}@${{ secrets.HOMELAB_HOST }}:/tmp/port-productivity-mlops-demo.tgz"
+      - name: Deploy over SSH
+        run: |
+          ssh -i ~/.ssh/homelab_key -p "${{ secrets.HOMELAB_SSH_PORT }}" "${{ secrets.HOMELAB_USER }}@${{ secrets.HOMELAB_HOST }}" \
+            "mkdir -p '${{ secrets.DEPLOY_PATH }}' && \
+             tar -xzf /tmp/port-productivity-mlops-demo.tgz -C '${{ secrets.DEPLOY_PATH }}' && \
+             cd '${{ secrets.DEPLOY_PATH }}' && \
+             if [ ! -f .env ]; then cp .env.example .env; fi && \
+             docker compose --env-file .env -f docker-compose.demo.yml pull || true && \
+             docker compose --env-file .env -f docker-compose.demo.yml up -d --build && \
+             curl -fsS http://127.0.0.1:80/ports-mlops/health -H 'Host: jimitogni.duckdns.org:8888'"

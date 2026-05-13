@@ -1,0 +1,30 @@
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: port-productivity-mlops-strip
+  namespace: port-productivity-mlops
+spec:
+  stripPrefix:
+    prefixes:
+      - /ports-mlops
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: port-productivity-api
+  namespace: port-productivity-mlops
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+    traefik.ingress.kubernetes.io/router.middlewares: port-productivity-mlops-strip@kubernetescrd
+spec:
+  rules:
+    - host: jimitogni.duckdns.org
+      http:
+        paths:
+          - path: /ports-mlops
+            pathType: Prefix
+            backend:
+              service:
+                name: port-productivity-api
+                port:
+                  number: 80

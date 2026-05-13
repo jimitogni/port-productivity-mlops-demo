@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: port-productivity-api
+  namespace: port-productivity-mlops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: port-productivity-api
+  template:
+    metadata:
+      labels:
+        app: port-productivity-api
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/OWNER/port-productivity-mlops-demo:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: port-productivity-config
+            - secretRef:
+                name: port-productivity-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+

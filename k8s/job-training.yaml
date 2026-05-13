@@ -1,0 +1,28 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: port-productivity-training
+  namespace: port-productivity-mlops
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: training
+          image: ghcr.io/OWNER/port-productivity-mlops-demo:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - >
+              python -m src.data.generate_synthetic_data
+              --start-date 2024-01-01
+              --end-date $(date +%F)
+              --output /app/data/raw/port_productivity.csv
+              && python -m src.pipelines.training_pipeline
+              --data-path /app/data/raw/port_productivity.csv
+          envFrom:
+            - configMapRef:
+                name: port-productivity-config
+            - secretRef:
+                name: port-productivity-secrets
+

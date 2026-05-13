@@ -1,0 +1,27 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: port-productivity-daily-prediction
+  namespace: port-productivity-mlops
+spec:
+  schedule: "15 6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: daily-prediction
+              image: ghcr.io/OWNER/port-productivity-mlops-demo:latest
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "-c"]
+              args:
+                - python -m src.pipelines.daily_prediction_pipeline --execution-date $(date -u +%F)
+              envFrom:
+                - configMapRef:
+                    name: port-productivity-config
+                - secretRef:
+                    name: port-productivity-secrets

@@ -1,0 +1,48 @@
+services:
+  port-productivity-mlops-api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: ${PORT_PRODUCTIVITY_IMAGE:-port-productivity-mlops-demo:local}
+    container_name: port_productivity_mlops_api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PROJECT_ROOT: /app
+      DATA_DIR: /app/data
+      REPORTS_DIR: /app/reports
+      MODELS_DIR: /app/models
+      PROMETHEUS_METRICS_PATH: /app/data/monitoring/port_productivity_metrics.prom
+      MLFLOW_TRACKING_URI: ${DOCKER_MLFLOW_TRACKING_URI:-http://mlflow_server:5000}
+    volumes:
+      - ./data:/app/data
+      - ./reports:/app/reports
+      - ./models:/app/models
+    networks:
+      - default
+      - traefik
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: "${TRAEFIK_NETWORK:-traefik_proxy}"
+      traefik.http.routers.port-productivity-mlops.rule: "(Host(`${PUBLIC_APPS_HOST:-jimitogni.duckdns.org}`) || Host(`localhost`) || Host(`127.0.0.1`)) && PathPrefix(`${PORT_PRODUCTIVITY_PATH_PREFIX:-/ports-mlops}`)"
+      traefik.http.routers.port-productivity-mlops.entrypoints: "${TRAEFIK_HTTP_ENTRYPOINT:-web}"
+      traefik.http.routers.port-productivity-mlops.priority: "125"
+      traefik.http.routers.port-productivity-mlops.middlewares: port-productivity-mlops-strip-prefix
+      traefik.http.middlewares.port-productivity-mlops-strip-prefix.stripprefix.prefixes: "${PORT_PRODUCTIVITY_PATH_PREFIX:-/ports-mlops}"
+      traefik.http.services.port-productivity-mlops.loadbalancer.server.port: "8000"
+      traefik.http.routers.port-productivity-mlops-secure.rule: "Host(`${PUBLIC_APPS_HOST:-jimitogni.duckdns.org}`) && PathPrefix(`${PORT_PRODUCTIVITY_PATH_PREFIX:-/ports-mlops}`)"
+      traefik.http.routers.port-productivity-mlops-secure.entrypoints: "${TRAEFIK_HTTPS_ENTRYPOINT:-websecure}"
+      traefik.http.routers.port-productivity-mlops-secure.tls: "true"
+      traefik.http.routers.port-productivity-mlops-secure.tls.certresolver: "${TRAEFIK_CERT_RESOLVER:-duckdns}"
+      traefik.http.routers.port-productivity-mlops-secure.middlewares: port-productivity-mlops-strip-prefix
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+networks:
+  traefik:
+    external: true
+    name: ${TRAEFIK_NETWORK:-traefik_proxy}

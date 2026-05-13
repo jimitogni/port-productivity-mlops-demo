@@ -1,0 +1,35 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: port-productivity-forecaster
+  namespace: port-productivity-mlops
+spec:
+  predictor:
+    containers:
+      - name: kserve-container
+        image: ghcr.io/OWNER/port-productivity-mlops-demo:latest
+        ports:
+          - containerPort: 8000
+        env:
+          - name: PROJECT_ROOT
+            value: /app
+          - name: DATA_DIR
+            value: /app/data
+          - name: REPORTS_DIR
+            value: /app/reports
+          - name: MODELS_DIR
+            value: /app/models
+          - name: MODEL_NAME
+            value: port_productivity_forecaster
+          - name: EXPECTED_TERMINALS
+            value: T1,T2,T3,T4
+          - name: MLFLOW_TRACKING_URI
+            valueFrom:
+              secretKeyRef:
+                name: port-productivity-secrets
+                key: MLFLOW_TRACKING_URI
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+

@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run tests
+        run: pytest -q
+      - name: Compile Python files
+        run: python -m compileall src dags scripts tests
+      - name: Validate Airflow DAG parsing
+        run: python scripts/validate_airflow_dags.py
+      - name: Small training smoke test
+        run: |
+          python -m src.data.generate_synthetic_data --start-date 2024-01-01 --end-date 2024-03-01 --output data/raw/port_productivity.csv
+          python -m src.pipelines.training_pipeline --data-path data/raw/port_productivity.csv
+
