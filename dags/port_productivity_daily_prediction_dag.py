@@ -112,6 +112,67 @@ if dag:
                 raise RuntimeError("Prometheus metrics file was not created")
             return metrics_path
 
+        @task(task_id="check_drift_and_alert")
+        def check_drift_and_alert(result: dict) -> dict:
+            import pandas as pd
+
+            from src.config.settings import get_settings
+            from src.utils.logging import get_logger
+
+            logger = get_logger(__name__)
+            thresholds = get_settings().alert_thresholds()
+
+            monitoring_metrics: dict = {}
+            metrics_path = result.get("monitoring_metrics_path")
+            if metrics_path and Path(metrics_path).exists():
+                df = pd.read_csv(metrics_path)
+                monitoring_metrics = dict(zip(df["metric_name"], df["metric_value"]))
+
+            alerts_fired: list[str] = []
+            if monitoring_metrics.get("data_drift_detected", 0):
+                drift_limit = thresholds.get("data_drift_share", 0.30)
+                alerts_fired.append(
+                    f"DataDriftDetected — drifted_features_share="
+                    f"{monitoring_metrics.get('drifted_features_share', '?')}, "
+                    f"limit={drift_limit:.0%} (see reports/evidently/)"
+                )
+            if monitoring_metrics.get("prediction_drift_detected", 0):
+                shift_limit = thresholds.get("prediction_mean_shift_pct", 0.25)
+                alerts_fired.append(
+                    f"PredictionDriftDetected — prediction distribution shifted "
+                    f">{shift_limit:.0%} vs training reference"
+                )
+            live_mae = float(monitoring_metrics.get("model_mae", 0))
+            if live_mae:
+                logger.info("Live model MAE: %.3f t/h", live_mae)
+
+            if alerts_fired:
+                for msg in alerts_fired:
+                    logger.warning("ALERT %s", msg)
+                logger.warning(
+                    "%d alert(s) fired. Review reports/evidently/ and consider retraining "
+                    "(CONTRIBUTING.md retraining trigger checklist).",
+                    len(alerts_fired),
+                )
+            else:
+                logger.info("Drift checks passed — no alerts.")
+
+            return {**monitoring_metrics, "alerts_fired": len(alerts_fired)}
+
+        @task(task_id="generate_operational_report")
+        def generate_operational_report(result: dict, alert_summary: dict, run_date: str) -> str:
+            import pandas as pd
+
+            from src.monitoring.daily_report import generate_daily_operational_report
+
+            report_path = generate_daily_operational_report(
+                predictions_df=pd.read_csv(result["prediction_path"]),
+                execution_date=run_date,
+                model_version=str(result.get("model_version", "unknown")),
+                monitoring_metrics=alert_summary,
+            )
+            return str(report_path)
+
         input_path = generate_or_load_daily_operational_data("{{ ds }}")
         validated_input = validate_input_data_task(input_path)
         build_inference_features_task(validated_input)
@@ -122,6 +183,8 @@ if dag:
         save_execution_metadata_task(validated_result)
         generate_evidently_monitoring_report(validated_result)
         export_prometheus_metrics(validated_result)
+        alert_summary = check_drift_and_alert(validated_result)
+        generate_operational_report(validated_result, alert_summary, "{{ ds }}")
 
     port_productivity_daily_prediction_pipeline()
 

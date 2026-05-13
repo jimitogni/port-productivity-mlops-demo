@@ -3,6 +3,30 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+
+
+def _load_thresholds(project_root: Path) -> dict[str, Any]:
+    """Load thresholds.yml; return defaults if file is missing or PyYAML unavailable."""
+    path = project_root / "thresholds.yml"
+    if path.exists():
+        try:
+            import yaml
+            return yaml.safe_load(path.read_text()) or {}
+        except Exception:
+            pass
+    return {
+        "promotion_gate": {
+            "max_mae_d1": 15.0, "max_mae_d2": 18.0, "max_mae_d3": 22.0,
+            "max_mape": 0.15, "min_r2": 0.65,
+            "max_mae_degradation_pct": 0.05, "max_rmse_degradation_pct": 0.05,
+            "max_terminal_mae_degradation_pct": 0.10,
+        },
+        "alert_thresholds": {
+            "data_drift_share": 0.30, "prediction_mean_shift_pct": 0.25,
+            "mae_degradation_pct": 0.20, "consecutive_drift_days": 2,
+        },
+    }
 
 
 def _load_dotenv(project_root: Path) -> None:
@@ -43,6 +67,13 @@ class Settings:
     pipeline_version: str
     database_url: str | None
     public_path_prefix: str
+    thresholds: dict[str, Any] = None  # type: ignore[assignment]
+
+    def promotion_gate(self) -> dict[str, Any]:
+        return (self.thresholds or {}).get("promotion_gate", {})
+
+    def alert_thresholds(self) -> dict[str, Any]:
+        return (self.thresholds or {}).get("alert_thresholds", {})
 
     def ensure_directories(self) -> None:
         for path in (
@@ -53,6 +84,7 @@ class Settings:
             self.monitoring_dir,
             self.reports_dir,
             self.reports_dir / "evidently",
+            self.reports_dir / "daily",
             self.models_dir,
         ):
             path.mkdir(parents=True, exist_ok=True)
@@ -61,6 +93,7 @@ class Settings:
 def get_settings() -> Settings:
     root = _project_root()
     _load_dotenv(root)
+    thresholds = _load_thresholds(root)
     data_dir = Path(os.getenv("DATA_DIR", root / "data")).expanduser().resolve()
     reports_dir = Path(os.getenv("REPORTS_DIR", root / "reports")).expanduser().resolve()
     models_dir = Path(os.getenv("MODELS_DIR", root / "models")).expanduser().resolve()
@@ -95,6 +128,7 @@ def get_settings() -> Settings:
         pipeline_version=os.getenv("PIPELINE_VERSION", "v1"),
         database_url=os.getenv("DATABASE_URL") or None,
         public_path_prefix=os.getenv("PUBLIC_PATH_PREFIX", "/ports-mlops"),
+        thresholds=thresholds,
     )
     settings.ensure_directories()
     return settings

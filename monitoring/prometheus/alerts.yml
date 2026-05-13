@@ -1,0 +1,88 @@
+groups:
+  - name: port_productivity_pipeline
+    rules:
+      # Pipeline did not run successfully today
+      - alert: PipelineFailure
+        expr: port_productivity_pipeline_success == 0
+        for: 5m
+        labels:
+          severity: critical
+          team: mlops
+        annotations:
+          summary: "Port productivity prediction pipeline failed"
+          description: >
+            The daily prediction pipeline has reported a failure.
+            Check Airflow DAG logs for port_productivity_daily_prediction_pipeline.
+            Operations (Camila/Ana) may not have today's D+1/D+2/D+3 forecasts.
+
+      # Pipeline has not produced metrics for more than 26 hours (missed a daily run)
+      - alert: PipelineMissedRun
+        expr: (time() - port_productivity_pipeline_success offset 1d) > 93600
+        for: 30m
+        labels:
+          severity: warning
+          team: mlops
+        annotations:
+          summary: "Port productivity pipeline missed its daily run"
+          description: >
+            No pipeline execution metric has been received in the last 26 hours.
+            Verify the Airflow scheduler is running and the DAG is not paused.
+
+  - name: port_productivity_data_quality
+    rules:
+      # Data drift detected — input data distribution has shifted
+      - alert: DataDriftDetected
+        expr: port_productivity_data_drift_detected == 1
+        for: 0m
+        labels:
+          severity: warning
+          team: mlops
+        annotations:
+          summary: "Data drift detected in port productivity input features"
+          description: >
+            More than 30% of input features drifted vs the training reference distribution.
+            Review the Evidently drift report in reports/evidently/.
+            If drift persists for 2 consecutive days, trigger retraining (see CONTRIBUTING.md).
+
+      # Prediction distribution has shifted significantly
+      - alert: PredictionDriftDetected
+        expr: port_productivity_prediction_drift_detected == 1
+        for: 0m
+        labels:
+          severity: warning
+          team: mlops
+        annotations:
+          summary: "Prediction drift detected — forecast distribution has shifted"
+          description: >
+            The distribution of predicted productivity values has shifted significantly
+            versus the training reference. This may indicate model staleness or upstream
+            data quality issues. Review reports/evidently/prediction_drift_report_*.html.
+
+  - name: port_productivity_model_performance
+    rules:
+      # Live MAE has degraded significantly vs training-time performance
+      - alert: ModelMAEDegradation
+        expr: port_productivity_model_mae > (port_productivity_model_mae offset 7d) * 1.20
+        for: 10m
+        labels:
+          severity: warning
+          team: mlops
+        annotations:
+          summary: "Port productivity model MAE degraded by more than 20%"
+          description: >
+            The model's Mean Absolute Error has increased by more than 20% compared to
+            the value recorded 7 days ago. Forecast accuracy may no longer meet the
+            operational SLA (max MAE D+1: 15 tons/hour). Consider retraining.
+
+      # Model version has not been updated in 30 days
+      - alert: StaleModel
+        expr: changes(port_productivity_current_model_version[30d]) == 0
+        for: 1h
+        labels:
+          severity: info
+          team: mlops
+        annotations:
+          summary: "Port productivity model has not been retrained in 30 days"
+          description: >
+            No new model version has been promoted to Production in the last 30 days.
+            Review whether retraining is needed given recent operational data.

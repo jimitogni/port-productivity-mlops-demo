@@ -1,0 +1,40 @@
+# Business thresholds for model promotion and operational alerting.
+# Agreed with Camila (Operations), Ana (Control Tower), and Carlos (Data Scientist).
+# Review quarterly or after any significant operational change at the port.
+#
+# Units: MAE/RMSE in tons/hour; MAPE as fraction (0.15 = 15%); R² dimensionless.
+
+promotion_gate:
+  # Absolute error limits per forecast horizon.
+  # D+1 has the tightest tolerance because it drives train retention and terminal scheduling (Camila).
+  # D+2/D+3 tolerances are wider because uncertainty compounds with horizon.
+  max_mae_d1: 15.0   # tons/hour — D+1
+  max_mae_d2: 18.0   # tons/hour — D+2
+  max_mae_d3: 22.0   # tons/hour — D+3
+
+  # Overall model quality floor
+  max_mape: 0.15     # 15% relative error (overall, across all horizons/terminals)
+  min_r2: 0.65       # minimum explained variance
+
+  # Degradation limits relative to the current Champion.
+  # A new Candidate is blocked if it degrades overall accuracy by more than these amounts,
+  # even if it still satisfies the absolute error limits above.
+  max_mae_degradation_pct: 0.05    # 5% relative MAE increase vs Champion
+  max_rmse_degradation_pct: 0.05   # 5% relative RMSE increase vs Champion
+  max_terminal_mae_degradation_pct: 0.10  # 10% per-terminal per-horizon degradation
+
+alert_thresholds:
+  # Fraction of features with detected drift (PSI > 0.2) to trigger a data-drift alert.
+  # 0.30 = more than 30% of features drifted simultaneously.
+  data_drift_share: 0.30
+
+  # Shift in mean predicted productivity (fraction) that triggers a prediction-drift alert.
+  # 0.25 = mean prediction changed by more than 25% vs the training reference.
+  prediction_mean_shift_pct: 0.25
+
+  # Live MAE relative degradation vs training-time MAE before alerting operations.
+  # 0.20 = alert if live error is 20% worse than what was seen during evaluation.
+  mae_degradation_pct: 0.20
+
+  # Number of consecutive days of detected drift before escalating to Camila/Ana.
+  consecutive_drift_days: 2

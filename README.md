@@ -284,6 +284,10 @@ Browser microphone or any HTTPS-required feature should use `:8443`. Router forw
 
 Default values live in `.env.example`; copy to `.env` before running.
 
+Business thresholds (model promotion gates, alert limits) live in [`thresholds.yml`](thresholds.yml) and are loaded automatically by `promote_model.py` and the monitoring pipeline. Edit that file — not the code — when SLA targets change.
+
+For the full Data Scientist ↔ MLOps collaboration workflow, promotion criteria, rollback runbook, and retraining trigger checklist, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 | Variable | Default | Purpose |
 |---|---|---|
 | `MLFLOW_TRACKING_URI` | `http://127.0.0.1:5000` | Used by local Python runs |
@@ -308,7 +312,7 @@ Default values live in `.env.example`; copy to `.env` before running.
 DAG files live in `dags/`:
 
 - `port_productivity_training_dag.py` — runs the training pipeline on a schedule.
-- `port_productivity_daily_prediction_dag.py` — runs the daily prediction at D0 for D+1/D+2/D+3.
+- `port_productivity_daily_prediction_dag.py` — runs the daily prediction at D0 for D+1/D+2/D+3. Terminal tasks: `check_drift_and_alert` (logs warnings if data/prediction drift thresholds from `thresholds.yml` are breached) and `generate_operational_report` (writes an HTML + CSV forecast report for Camila, Ana, and Bruna to `reports/daily/`).
 
 Validate parsing:
 
@@ -319,6 +323,12 @@ make validate-dags
 Copy `dags/*.py` into the existing Airflow `dags/` folder (or mount it) and configure environment variables from `.env.example`. Airflow on the homelab is not yet running, so this remains a documented integration step.
 
 ## Kubernetes / KServe / Kubeflow (optional)
+
+> **These are enterprise extensions, not the proposed solution for this use case.**
+> The proposed stack is Docker Compose + Airflow + Traefik on a single host (or a small VM).
+> K8s/KServe/Kubeflow are preserved in the repo as documented upgrade paths for when the
+> workload outgrows a single machine, but they are not required to demonstrate the full
+> MLOps lifecycle (training → validation → promotion gate → monitoring → rollback).
 
 The Kubernetes path is preserved as an enterprise extension. Airflow is the primary orchestrator for the daily batch.
 
