@@ -399,3 +399,4 @@ make demo-recovery            # validation failure followed by clean re-run
 - Importing the Grafana dashboard JSON.
 - Choosing production thresholds before flipping the promotion gate.
 - Creating Kubernetes secrets if using the cluster path.
+- Test again
