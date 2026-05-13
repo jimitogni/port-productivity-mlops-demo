@@ -132,4 +132,4 @@ jobs:
 
               echo "ERROR: Application did not become healthy."
               exit 1
-REMOTE
+          REMOTE
