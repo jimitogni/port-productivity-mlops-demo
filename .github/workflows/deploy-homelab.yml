@@ -42,7 +42,9 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.HOMELAB_SSH_KEY }}" > ~/.ssh/homelab_key
           chmod 600 ~/.ssh/homelab_key
+          echo ("====CONFIG SSH====")
           ssh-keyscan -p "${{ secrets.HOMELAB_SSH_PORT }}" "${{ secrets.HOMELAB_HOST }}" >> ~/.ssh/known_hosts
+
       - name: Package deployment files
         run: |
           tar \
@@ -62,11 +64,14 @@ jobs:
             --exclude='models/*' \
             --exclude='mlruns' \
             -czf /tmp/port-productivity-mlops-demo.tgz .
+      
       - name: Upload deployment bundle
         run: |
+          echo ("====SCP====")
           scp -i ~/.ssh/homelab_key -P "${{ secrets.HOMELAB_SSH_PORT }}" \
             /tmp/port-productivity-mlops-demo.tgz \
             "${{ secrets.HOMELAB_USER }}@${{ secrets.HOMELAB_HOST }}:/tmp/port-productivity-mlops-demo.tgz"
+      
       - name: Deploy over SSH
         run: |
           ssh -i ~/.ssh/homelab_key -p "${{ secrets.HOMELAB_SSH_PORT }}" "${{ secrets.HOMELAB_USER }}@${{ secrets.HOMELAB_HOST }}" \
