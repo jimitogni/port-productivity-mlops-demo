@@ -24,12 +24,12 @@ if dag:
     )
     def port_productivity_training_pipeline():
         @task(task_id="generate_synthetic_historical_data")
-        def generate_synthetic_historical_data(execution_date: str) -> str:
+        def generate_synthetic_historical_data(run_date: str) -> str:
             from src.config.settings import get_settings
             from src.data.generate_synthetic_data import generate_synthetic_data, save_dataset
 
             settings = get_settings()
-            df = generate_synthetic_data("2024-01-01", execution_date)
+            df = generate_synthetic_data("2024-01-01", run_date)
             return str(save_dataset(df, settings.raw_data_path))
 
         @task(task_id="validate_training_data")
