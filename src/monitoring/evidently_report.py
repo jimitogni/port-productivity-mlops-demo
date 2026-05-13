@@ -91,11 +91,11 @@ def create_training_report(reference_df: pd.DataFrame, output_name: str = "train
     settings = get_settings()
     output = settings.reports_dir / "evidently" / output_name
     try:
-        from evidently.metric_preset import DataQualityPreset
-        from evidently.report import Report
+        from evidently.legacy.metric_preset import DataQualityPreset
+        from evidently.legacy.report import Report
 
         report = Report(metrics=[DataQualityPreset()])
-        report.run(reference_data=reference_df, current_data=None)
+        report.run(reference_data=None, current_data=reference_df)
         report.save_html(str(output))
         return output
     except Exception as exc:
@@ -136,11 +136,17 @@ def create_daily_monitoring_report(
         metrics.update({f"regression_{key}": value for key, value in regression_performance.items()})
 
     try:
-        from evidently.metric_preset import DataDriftPreset
-        from evidently.report import Report
+        from evidently.legacy.metric_preset import DataDriftPreset
+        from evidently.legacy.report import Report
 
+        drift_columns = [
+            column for column in current_df.columns if column in reference_df.columns
+        ]
         report = Report(metrics=[DataDriftPreset()])
-        report.run(reference_data=reference_df, current_data=current_df)
+        report.run(
+            reference_data=reference_df[drift_columns],
+            current_data=current_df[drift_columns],
+        )
         report.save_html(str(drift_output))
     except Exception as exc:
         LOGGER.info("Using fallback drift report because Evidently failed or is unavailable: %s", exc)

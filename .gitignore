@@ -1,5 +1,6 @@
 .git/
 .env
+/1
 .venv/
 .agents/
 .codex/

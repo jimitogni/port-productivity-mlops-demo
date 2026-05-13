@@ -5,8 +5,9 @@ TODAY ?= 2026-05-12
 IMAGE ?= port-productivity-mlops-demo:local
 TEST_IMAGE ?= port-productivity-mlops-demo:test
 COMPOSE := docker compose --env-file .env -f docker-compose.demo.yml
-DOCKER_RUN_ENV := --env-file .env -e PROJECT_ROOT=/app -e DATA_DIR=/app/data -e REPORTS_DIR=/app/reports -e MODELS_DIR=/app/models -e PROMETHEUS_METRICS_PATH=/app/data/monitoring/port_productivity_metrics.prom -e MLFLOW_TRACKING_URI=$${DOCKER_MLFLOW_TRACKING_URI:-file:///app/mlruns}
-DOCKER_RUN_VOLUMES := -v "$$(pwd)/data:/app/data" -v "$$(pwd)/reports:/app/reports" -v "$$(pwd)/models:/app/models" -v "$$(pwd)/mlruns:/app/mlruns"
+DOCKER_RUN_ENV := --env-file .env -e PROJECT_ROOT=/app -e DATA_DIR=/app/data -e REPORTS_DIR=/app/reports -e MODELS_DIR=/app/models -e PROMETHEUS_METRICS_PATH=/app/data/monitoring/port_productivity_metrics.prom -e MLFLOW_TRACKING_URI=$${DOCKER_MLFLOW_TRACKING_URI:-http://mlflow_server:5000}
+DOCKER_RUN_VOLUMES := -v "$$(pwd)/data:/app/data" -v "$$(pwd)/reports:/app/reports" -v "$$(pwd)/models:/app/models"
+DOCKER_RUN_NET := --network $${DOCKER_MLFLOW_NETWORK:-mlflow_default}
 
 .PHONY: setup doctor venv install check-python-deps generate-data train predict validate-dags test compile monitoring-report promote-model run-api docker-build docker-run-api docker-test docker-generate-data docker-train docker-promote-model docker-predict docker-demo-normal compose-up compose-down compose-logs k8s-apply k8s-delete k8s-status k8s-logs demo-normal demo-missing-terminal demo-drift demo-prediction-drift demo-train-challenger demo-promote-model demo-failed-validation demo-recovery clean
 
@@ -89,7 +90,7 @@ docker-build:
 	docker build -f docker/Dockerfile -t $(IMAGE) .
 
 docker-run-api:
-	docker run --rm $(DOCKER_RUN_ENV) -p 8015:8000 $(DOCKER_RUN_VOLUMES) $(IMAGE)
+	docker run --rm $(DOCKER_RUN_ENV) $(DOCKER_RUN_NET) -p 8015:8000 $(DOCKER_RUN_VOLUMES) $(IMAGE)
 
 docker-test:
 	docker build -f docker/Dockerfile -t $(TEST_IMAGE) .
@@ -101,15 +102,15 @@ docker-generate-data: setup
 
 docker-train: setup
 	docker build -f docker/Dockerfile -t $(TEST_IMAGE) .
-	docker run --rm $(DOCKER_RUN_ENV) $(DOCKER_RUN_VOLUMES) $(TEST_IMAGE) python -m src.pipelines.training_pipeline --data-path /app/data/raw/port_productivity.csv
+	docker run --rm $(DOCKER_RUN_ENV) $(DOCKER_RUN_NET) $(DOCKER_RUN_VOLUMES) $(TEST_IMAGE) python -m src.pipelines.training_pipeline --data-path /app/data/raw/port_productivity.csv
 
 docker-promote-model: setup
 	docker build -f docker/Dockerfile -t $(TEST_IMAGE) .
-	docker run --rm $(DOCKER_RUN_ENV) $(DOCKER_RUN_VOLUMES) $(TEST_IMAGE) python -m src.models.promote_model
+	docker run --rm $(DOCKER_RUN_ENV) $(DOCKER_RUN_NET) $(DOCKER_RUN_VOLUMES) $(TEST_IMAGE) python -m src.models.promote_model
 
 docker-predict: setup
 	docker build -f docker/Dockerfile -t $(TEST_IMAGE) .
-	docker run --rm $(DOCKER_RUN_ENV) $(DOCKER_RUN_VOLUMES) $(TEST_IMAGE) python -m src.pipelines.daily_prediction_pipeline --execution-date $(TODAY)
+	docker run --rm $(DOCKER_RUN_ENV) $(DOCKER_RUN_NET) $(DOCKER_RUN_VOLUMES) $(TEST_IMAGE) python -m src.pipelines.daily_prediction_pipeline --execution-date $(TODAY)
 
 docker-demo-normal: docker-test docker-generate-data docker-train docker-promote-model docker-predict
 

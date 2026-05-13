@@ -42,6 +42,7 @@ def _log_mlflow_run(
     dataset_path: str,
     training_period: dict[str, str],
     feature_columns_path: Path,
+    evidently_report_path: Path | None = None,
 ) -> str:
     settings = get_settings()
     run_id = str(uuid.uuid4())
@@ -75,6 +76,8 @@ def _log_mlflow_run(
                 feature_columns=expected_feature_columns(),
                 alias="Candidate",
             )
+            if evidently_report_path is not None and evidently_report_path.exists():
+                mlflow.log_artifact(str(evidently_report_path), artifact_path="evidently")
     except Exception as exc:
         LOGGER.warning("MLflow logging failed; local registry still captures the model: %s", exc)
     return run_id
@@ -118,6 +121,7 @@ def run_training_pipeline(data_path: str | Path | None = None, random_state: int
         "start_date": str(validated_df["operation_date"].min().date()),
         "end_date": str(validated_df["operation_date"].max().date()),
     }
+    report_path = create_training_report(validated_df)
     run_id = _log_mlflow_run(
         best_model,
         model_type,
@@ -127,6 +131,7 @@ def run_training_pipeline(data_path: str | Path | None = None, random_state: int
         str(data_path),
         training_period,
         feature_columns_path,
+        evidently_report_path=report_path,
     )
     local_version = register_local_model(
         best_model,
@@ -147,7 +152,6 @@ def run_training_pipeline(data_path: str | Path | None = None, random_state: int
         model_version=local_version,
         evaluation_date=training_period["end_date"],
     )
-    report_path = create_training_report(validated_df)
     metrics_path = settings.models_dir / "latest_training_metrics.json"
     result = {
         "run_id": run_id,
