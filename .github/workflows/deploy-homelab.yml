@@ -97,7 +97,7 @@ jobs:
               echo "Deploy path: $DEPLOY_PATH"
 
               mkdir -p "$DEPLOY_PATH"
-              tar -xzf /tmp/port-productivity-mlops-demo.tgz -C "$DEPLOY_PATH"
+              tar --touch -xzf /tmp/port-productivity-mlops-demo.tgz -C "$DEPLOY_PATH"
 
               cd "$DEPLOY_PATH"
 
@@ -132,4 +132,4 @@ jobs:
 
               echo "ERROR: Application did not become healthy."
               exit 1
-              REMOTE
+REMOTE
