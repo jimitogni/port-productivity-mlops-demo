@@ -61,7 +61,7 @@ jobs:
             --exclude='data/monitoring/*.csv' \
             --exclude='data/monitoring/*.prom' \
             --exclude='reports/evidently/*.html' \
-            --exclude='models/*' \
+            --exclude='models' \
             --exclude='mlruns' \
             -czf /tmp/port-productivity-mlops-demo.tgz .
       
@@ -100,6 +100,10 @@ jobs:
               tar --touch --no-overwrite-dir --no-same-permissions -xzf /tmp/port-productivity-mlops-demo.tgz -C "$DEPLOY_PATH"
 
               cd "$DEPLOY_PATH"
+
+              # models/ is a runtime bind-mount dir (often root-owned by the
+              # container); it is excluded from the bundle, just ensure it exists.
+              mkdir -p models
 
               if [ ! -f .env ]; then
                 if [ -f .env.example ]; then
