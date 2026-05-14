@@ -26,11 +26,13 @@ def train_baseline_model(X, y) -> DummyRegressor:
 
 def train_candidate_model(
     X, y, random_state: int = 42
-) -> tuple[object, str, dict]:
-    """Train RandomForest (grid search) and XGBoost, return the better model.
+) -> tuple[dict[str, object], str, dict]:
+    """Train RandomForest (grid search) and XGBoost.
 
     Returns:
-        (model, model_type_str, best_params_dict)
+        (candidates, best_type, best_params) where `candidates` maps each
+        trained model type to its fitted estimator, and `best_type` is the
+        one with the lowest cross-validated MAE.
     """
     tscv = TimeSeriesSplit(n_splits=5)
 
@@ -57,12 +59,16 @@ def train_candidate_model(
         **{f"rf_{k}": str(v) for k, v in rf_search.best_params_.items()},
     }
 
+    candidates: dict[str, object] = {"RandomForestRegressor": rf_search.best_estimator_}
+    if xgb_model is not None:
+        candidates["XGBRegressor"] = xgb_model
+
     if xgb_model is not None and xgb_cv_mae < rf_cv_mae:
         LOGGER.info("XGBoost wins (CV MAE %.4f < RF %.4f)", xgb_cv_mae, rf_cv_mae)
-        return xgb_model, "XGBRegressor", best_params
+        return candidates, "XGBRegressor", best_params
 
     LOGGER.info("RandomForest wins (CV MAE %.4f)", rf_cv_mae)
-    return rf_search.best_estimator_, "RandomForestRegressor", best_params
+    return candidates, "RandomForestRegressor", best_params
 
 
 def _train_xgboost(X, y, tscv, random_state: int):

@@ -27,7 +27,7 @@ A notebook prototype produced reasonable forecasts but lacked traceability, vali
 
 - Generates synthetic operational history for terminals `T1–T4`.
 - Validates input data against business rules.
-- Builds features, trains a baseline (`DummyRegressor`) and a candidate (`RandomForestRegressor`), and registers the better model.
+- Builds features, trains a baseline (`DummyRegressor`) and two candidates (`RandomForestRegressor`, `XGBRegressor`), and registers the better model.
 - Promotes only after explicit gating (`Production` alias).
 - Produces D+1/D+2/D+3 productivity forecasts daily, with traceable `run_id`, `model_version`, `feature_version`, and `pipeline_version` on every row.
 - Emits Prometheus metrics, Evidently HTML reports, and structured CSV monitoring records on every run.
@@ -65,7 +65,9 @@ A notebook prototype produced reasonable forecasts but lacked traceability, vali
 | Concern | Choice | Why |
 |---|---|---|
 | Baseline model | `sklearn.dummy.DummyRegressor` | Sanity floor for any candidate |
-| Candidate model | `sklearn.ensemble.RandomForestRegressor` | Strong tabular baseline, no GPU required |
+| Candidate model 1 | `sklearn.ensemble.RandomForestRegressor` | Strong tabular model, no GPU required; tuned via `GridSearchCV` |
+| Candidate model 2 | `xgboost.XGBRegressor` | Gradient boosting; often edges out RF on tabular data (skipped gracefully if `xgboost` not installed) |
+| Model selection | `TimeSeriesSplit` (5-fold) CV MAE picks RF vs XGBoost; RMSE on the time hold-out picks candidate vs baseline | Two-stage tournament, temporal-order CV avoids leakage |
 | Train/test split | Time-based (80/20 by `operation_date`) | Reflects real forecasting use case, avoids leakage |
 | Evaluation | MAE, RMSE, R², MAPE — overall + per terminal × horizon | Operational stakeholders care about per-terminal accuracy |
 | Feature engineering | `src/features/build_features.py` (`v1`) | Versioned via `FEATURE_VERSION` env var |
@@ -191,11 +193,11 @@ make docker-generate-data
 1. Loads + validates raw data (`src/validation/validate_input_data.py`).
 2. Builds features (`src/features/build_features.py`).
 3. Time-splits 80/20 by `operation_date`.
-4. Trains `DummyRegressor` (baseline) and `RandomForestRegressor` (candidate).
-5. Picks the lower-RMSE model.
-6. Computes overall and per-terminal-per-horizon metrics.
+4. Trains three models: `DummyRegressor` (baseline), `RandomForestRegressor` (tuned with `GridSearchCV`), and `XGBRegressor` (gradient boosting). RF and XGBoost are compared by 5-fold `TimeSeriesSplit` CV MAE — the better one becomes the candidate.
+5. Picks the lower-RMSE model between the candidate and the baseline.
+6. Scores all three models on the same held-out test set and computes overall + per-terminal-per-horizon metrics.
 7. Creates the Evidently training data report.
-8. Opens an MLflow run, logs params, metrics, tags, the sklearn model, and the Evidently HTML as artifact `evidently/training_data_report.html`.
+8. Opens a **parent MLflow run** (`training-…`) with a **nested child run per model** (`DummyRegressor`, `RandomForestRegressor`, `XGBRegressor`) — each child logs the same test-set metrics (`mae/rmse/r2/mape`) and its model, so the three can be selected and compared side-by-side in the MLflow UI. The winner carries a `winner=true` tag and is registered to the model registry with the `Candidate` alias; the parent run also logs all metrics prefixed by model type as a summary, plus the Evidently HTML as artifact `evidently/training_data_report.html`.
 9. Writes `models/registry.json` and `models/latest_training_metrics.json` for the local fallback path.
 
 ```bash

@@ -34,10 +34,9 @@ def _time_split(features: pd.DataFrame, train_fraction: float = 0.80) -> tuple[p
 
 
 def _log_mlflow_run(
-    best_model,
-    model_type: str,
-    metrics: dict[str, float],
-    baseline_metrics: dict[str, float],
+    all_models: dict[str, object],
+    all_metrics: dict[str, dict[str, float]],
+    winner_type: str,
     terminal_metrics: dict[str, dict[str, float]],
     dataset_path: str,
     training_period: dict[str, str],
@@ -45,10 +44,19 @@ def _log_mlflow_run(
     evidently_report_path: Path | None = None,
     best_params: dict | None = None,
 ) -> str:
+    """Log one parent MLflow run with a nested child run per trained model.
+
+    The child runs (DummyRegressor, RandomForestRegressor, XGBRegressor) each
+    carry the same held-out test-set metrics, so they can be selected and
+    compared side-by-side in the MLflow UI. The winning model is registered to
+    the model registry from its own child run with the ``Candidate`` alias;
+    the losers still get their artifact logged for inspection.
+    """
     settings = get_settings()
     run_id = str(uuid.uuid4())
     try:
         import mlflow
+        import mlflow.sklearn
     except ImportError:
         LOGGER.warning("MLflow is not installed; using local run id %s", run_id)
         return run_id
@@ -56,29 +64,51 @@ def _log_mlflow_run(
     try:
         mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
         mlflow.set_experiment("port_productivity_training")
-        with mlflow.start_run(run_name=f"training-{run_id}") as run:
-            run_id = run.info.run_id
+        with mlflow.start_run(run_name=f"training-{run_id}") as parent_run:
+            run_id = parent_run.info.run_id
             mlflow.set_tag("pipeline", "training")
             mlflow.set_tag("model_name", settings.model_name)
-            mlflow.set_tag("model_type", model_type)
+            mlflow.set_tag("winner_model_type", winner_type)
             mlflow.log_param("dataset_path", dataset_path)
             mlflow.log_param("training_start_date", training_period["start_date"])
             mlflow.log_param("training_end_date", training_period["end_date"])
             if best_params:
                 mlflow.log_params({k: str(v) for k, v in best_params.items() if v is not None})
-            for name, value in baseline_metrics.items():
-                mlflow.log_metric(f"baseline_{name}", value)
-            for name, value in metrics.items():
-                mlflow.log_metric(name, value)
-            register_mlflow_model(
-                best_model,
-                "model",
-                feature_columns_path,
-                metrics=metrics,
-                terminal_metrics=terminal_metrics,
-                feature_columns=expected_feature_columns(),
-                alias="Candidate",
-            )
+            # Parent run carries every model's metrics prefixed by type, so it
+            # doubles as a one-glance summary of the comparison.
+            for name, metrics in all_metrics.items():
+                for metric_name, value in metrics.items():
+                    mlflow.log_metric(f"{name}_{metric_name}", value)
+
+            for name, model in all_models.items():
+                is_winner = name == winner_type
+                with mlflow.start_run(run_name=name, nested=True):
+                    mlflow.set_tag("pipeline", "training")
+                    mlflow.set_tag("model_type", name)
+                    mlflow.set_tag("winner", str(is_winner).lower())
+                    mlflow.log_param("dataset_path", dataset_path)
+                    for metric_name, value in all_metrics[name].items():
+                        mlflow.log_metric(metric_name, value)
+                    if is_winner:
+                        # Register the selected model (and log its artifact)
+                        # from its own child run, with the Candidate alias.
+                        register_mlflow_model(
+                            model,
+                            "model",
+                            feature_columns_path,
+                            metrics=all_metrics[name],
+                            terminal_metrics=terminal_metrics,
+                            feature_columns=expected_feature_columns(),
+                            alias="Candidate",
+                        )
+                    else:
+                        # Losers are not registered, but their artifact is
+                        # still logged so the comparison is fully inspectable.
+                        try:
+                            mlflow.sklearn.log_model(sk_model=model, artifact_path="model")
+                        except Exception as exc:
+                            LOGGER.warning("Could not log %s artifact: %s", name, exc)
+
             if evidently_report_path is not None and evidently_report_path.exists():
                 mlflow.log_artifact(str(evidently_report_path), artifact_path="evidently")
     except Exception as exc:
@@ -101,22 +131,23 @@ def run_training_pipeline(data_path: str | Path | None = None, random_state: int
     y_test = test_df[TARGET_COLUMN]
 
     baseline = train_baseline_model(X_train, y_train)
-    candidate, candidate_type, best_params = train_candidate_model(X_train, y_train, random_state=random_state)
-    baseline_predictions = baseline.predict(X_test)
-    candidate_predictions = candidate.predict(X_test)
-    baseline_metrics = regression_metrics(y_test, baseline_predictions)
-    candidate_metrics = regression_metrics(y_test, candidate_predictions)
+    candidates, candidate_type, best_params = train_candidate_model(X_train, y_train, random_state=random_state)
 
-    if candidate_metrics["rmse"] <= baseline_metrics["rmse"]:
-        best_model = candidate
-        best_metrics = candidate_metrics
-        model_type = candidate_type
-        best_predictions = candidate_predictions
-    else:
-        best_model = baseline
-        best_metrics = baseline_metrics
-        model_type = "DummyRegressor"
-        best_predictions = baseline_predictions
+    # Score every model on the same held-out test set so the MLflow child runs
+    # are a fair, apples-to-apples comparison.
+    all_models = {"DummyRegressor": baseline, **candidates}
+    all_metrics = {
+        name: regression_metrics(y_test, model.predict(X_test))
+        for name, model in all_models.items()
+    }
+    baseline_metrics = all_metrics["DummyRegressor"]
+    candidate_metrics = all_metrics[candidate_type]
+
+    # Candidate must beat the mean-baseline on test RMSE to be selected.
+    model_type = candidate_type if candidate_metrics["rmse"] <= baseline_metrics["rmse"] else "DummyRegressor"
+    best_model = all_models[model_type]
+    best_metrics = all_metrics[model_type]
+    best_predictions = best_model.predict(X_test)
 
     terminal_metrics = terminal_level_metrics(test_df[["terminal_id", "forecast_horizon"]], y_test, best_predictions)
     feature_columns_path = save_feature_columns()
@@ -126,10 +157,9 @@ def run_training_pipeline(data_path: str | Path | None = None, random_state: int
     }
     report_path = create_training_report(validated_df)
     run_id = _log_mlflow_run(
-        best_model,
+        all_models,
+        all_metrics,
         model_type,
-        best_metrics,
-        baseline_metrics,
         terminal_metrics,
         str(data_path),
         training_period,
