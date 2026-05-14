@@ -12,7 +12,7 @@ LOGGER = get_logger(__name__)
 
 _RF_PARAM_GRID = {
     "n_estimators": [200, 400],
-    "max_depth": [None, 12, 18],
+    "max_depth": [None, 11, 18],
     "max_features": ["sqrt", 0.5],
     "min_samples_leaf": [1, 3],
 }
