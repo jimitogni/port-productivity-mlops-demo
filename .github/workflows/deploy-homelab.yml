@@ -55,12 +55,8 @@ jobs:
             --exclude='*.pyc' \
             --exclude='.pytest_cache' \
             --exclude='.mypy_cache' \
-            --exclude='data/raw/*.csv' \
-            --exclude='data/processed/*.csv' \
-            --exclude='data/predictions/*.csv' \
-            --exclude='data/monitoring/*.csv' \
-            --exclude='data/monitoring/*.prom' \
-            --exclude='reports/evidently/*.html' \
+            --exclude='data' \
+            --exclude='reports' \
             --exclude='models' \
             --exclude='mlruns' \
             -czf /tmp/port-productivity-mlops-demo.tgz .
@@ -101,9 +97,11 @@ jobs:
 
               cd "$DEPLOY_PATH"
 
-              # models/ is a runtime bind-mount dir (often root-owned by the
-              # container); it is excluded from the bundle, just ensure it exists.
-              mkdir -p models
+              # data/, reports/ and models/ are runtime bind-mount dirs that the
+              # container writes to as root. They are excluded from the bundle so
+              # tar never tries to chmod a root-owned dir; just ensure they exist
+              # (the app's ensure_directories() recreates all subdirs on startup).
+              mkdir -p data reports models
 
               if [ ! -f .env ]; then
                 if [ -f .env.example ]; then
