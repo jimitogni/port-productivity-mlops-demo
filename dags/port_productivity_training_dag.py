@@ -24,12 +24,25 @@ if dag:
     )
     def port_productivity_training_pipeline():
         @task(task_id="generate_synthetic_historical_data")
-        def generate_synthetic_historical_data(run_date: str) -> str:
+        def generate_synthetic_historical_data(**context) -> str:
             from src.config.settings import get_settings
             from src.data.generate_synthetic_data import generate_synthetic_data, save_dataset
 
+            # Optional overrides via "Trigger DAG w/ config" (dag_run.conf):
+            #   end_date: extend the range past today for more rows (data only,
+            #             not the scheduler's logical date — future dates OK here)
+            #   scenario: "normal" | "drift" | "prediction_drift" | "missing_terminal"
+            #   seed:     different sample over the same range
+            # No conf -> identical behaviour to before ({{ ds }}, normal, seed 42).
+            conf = (context.get("dag_run").conf or {}) if context.get("dag_run") else {}
+            end_date = conf.get("end_date", context["ds"])
+            scenario = conf.get("scenario", "normal")
+            seed = int(conf.get("seed", 42))
+
             settings = get_settings()
-            df = generate_synthetic_data("2024-01-01", run_date)
+            df = generate_synthetic_data(
+                "2024-01-01", end_date, scenario=scenario, seed=seed
+            )
             return str(save_dataset(df, settings.raw_data_path))
 
         @task(task_id="validate_training_data")
@@ -87,7 +100,7 @@ if dag:
                 raise RuntimeError("Training Evidently report was not created")
             return str(report)
 
-        data_path = generate_synthetic_historical_data("{{ ds }}")
+        data_path = generate_synthetic_historical_data()
         validated_path = validate_training_data(data_path)
         build_training_features(validated_path)
         result = train_candidate_models(validated_path)
