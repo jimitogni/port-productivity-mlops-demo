@@ -54,15 +54,20 @@
   2. Build features
   3. Time-based 80/20 train/test split (sorted by operation_date, not shuffled) — this mirrors the real forecasting
   scenario and prevents data leakage
-  4. Train two models:
+  4. Train three models:
     - sklearn DummyRegressor — the baseline (always predicts the mean); anything worse than this is useless
-    - sklearn RandomForestRegressor — the candidate; strong on tabular data, interpretable, no GPU needed
-  5. Pick the winner by lowest RMSE
+    - sklearn RandomForestRegressor — candidate; strong on tabular data, no GPU needed; tuned with GridSearchCV
+    - XGBRegressor — candidate; gradient boosting, often edges out RF on tabular data (skipped gracefully if
+   xgboost is not installed)
+  5. Pick the winner in two stages: RandomForest vs XGBoost by 5-fold TimeSeriesSplit CV MAE picks the candidate;
+  the candidate then has to beat the DummyRegressor baseline on test RMSE to be selected
   6. Evaluate with MAE, RMSE, R², and MAPE — both overall and per-terminal per-horizon so operations stakeholders
   can see which terminal is performing worst
 
   Tools:
-  - scikit-learn — DummyRegressor, RandomForestRegressor, train/test splitting, all metric functions
+  - scikit-learn — DummyRegressor, RandomForestRegressor, GridSearchCV, TimeSeriesSplit, train/test splitting,
+   all metric functions
+  - xgboost — XGBRegressor gradient-boosting candidate
   - pandas / numpy — data wrangling during training
 
   ---
@@ -70,11 +75,15 @@
   
   File: src/pipelines/training_pipeline.py (MLflow calls inside)
 
-  Every training run opens an MLflow run that logs:
-  - Parameters (model type, feature version, train/test sizes)
-  - Metrics (MAE, RMSE, R², MAPE — per terminal and overall)
-  - Tags (pipeline_version, feature_version)
-  - The trained sklearn model as an artifact
+  Every training run opens a parent MLflow run with one nested child run per model
+  (DummyRegressor, RandomForestRegressor, XGBRegressor), so the three can be selected and compared
+  side-by-side in the MLflow UI. It logs:
+  - Parameters (dataset path, training date range, RF/XGBoost CV MAE and tuned RF params)
+  - Metrics (MAE, RMSE, R², MAPE) — the same held-out test metrics on each child run; the parent
+   run also mirrors every model's metrics prefixed by type as a one-glance summary
+  - Tags (winner_model_type on the parent; model_type and winner=true/false on each child)
+  - The trained model on each child run; the winner is also registered to the Model Registry
+   with the Candidate alias
   - The Evidently training data quality report as an HTML artifact under evidently/
   
   Tool: MLflow (backed by PostgreSQL on the homelab at mlflow_server:5000)
