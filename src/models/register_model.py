@@ -83,7 +83,10 @@ def register_local_model(
         registry["aliases"]["Production"] = version
         LOGGER.info("Bootstrapped Champion/Production aliases to local model version %s", version)
     _save_registry(registry)
-    shutil.copy2(model_path, settings.models_dir / "latest_model.joblib")
+    # copyfile (not copy2): models_dir is a bind mount, and latest_model.joblib
+    # may be owned by another uid (e.g. a root container wrote it). copy2's
+    # copystat -> utime needs file ownership; copyfile only needs write access.
+    shutil.copyfile(model_path, settings.models_dir / "latest_model.joblib")
     LOGGER.info("Registered local model version %s as %s", version, alias)
     return version
 
