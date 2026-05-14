@@ -141,6 +141,141 @@ def _render_reports_index(base: Path, rel: str) -> str:
 </html>"""
 
 
+_PREDICT_FORM_PAGE = r"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Port Productivity — Prediction</title>
+<style>
+body { font-family: Arial, sans-serif; margin: 0; background: #f8f9fa; color: #212529; }
+.wrap { max-width: 760px; margin: 0 auto; padding: 32px 24px; }
+h1 { color: #003366; margin-bottom: 4px; }
+.subtitle { color: #6c757d; font-size: 14px; margin-bottom: 24px; }
+form { background: #fff; border: 1px solid #e9ecef; border-radius: 8px; padding: 24px; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+label { display: block; font-size: 13px; font-weight: bold; color: #003366; margin-bottom: 4px; }
+input, select { width: 100%; padding: 8px; border: 1px solid #ced4da; border-radius: 4px;
+  font-size: 14px; box-sizing: border-box; }
+button { margin-top: 20px; background: #003366; color: #fff; border: none; padding: 12px 24px;
+  font-size: 15px; border-radius: 4px; cursor: pointer; }
+button:hover { background: #00254d; }
+button:disabled { background: #6c757d; cursor: wait; }
+.result { margin-top: 24px; padding: 20px; border-radius: 8px; display: none; }
+.result.ok { background: #e6f4ea; border: 1px solid #34a853; display: block; }
+.result.err { background: #fce8e6; border: 1px solid #d93025; display: block; }
+.result h2 { margin: 0 0 8px; color: #003366; font-size: 16px; }
+.pred { font-size: 32px; font-weight: bold; color: #003366; }
+.meta { color: #6c757d; font-size: 13px; margin-top: 8px; }
+.links { margin-top: 20px; font-size: 13px; }
+.links a { color: #0066cc; text-decoration: none; margin-right: 16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>&#128230; Port Productivity &mdash; Forecast</h1>
+  <div class="subtitle">Enter operational conditions and get a predicted productivity (tons/hour).</div>
+  <form id="f">
+    <div class="grid">
+      <div><label>Terminal</label>
+        <select name="terminal_id">{{TERMINAL_OPTIONS}}</select></div>
+      <div><label>Commodity</label>
+        <select name="commodity_type">
+          <option>soybean</option><option>corn</option><option>sugar</option>
+          <option>fertilizer</option><option>iron_ore</option>
+        </select></div>
+      <div><label>Shift</label>
+        <select name="shift"><option>day</option><option>night</option><option>swing</option></select></div>
+      <div><label>Forecast horizon</label>
+        <select name="forecast_horizon"><option>D+1</option><option>D+2</option><option>D+3</option></select></div>
+      <div><label>Trains waiting</label>
+        <input type="number" name="number_of_trains_waiting" value="5" min="0" step="1"></div>
+      <div><label>Number of wagons</label>
+        <input type="number" name="number_of_wagons" value="80" min="1" step="1"></div>
+      <div><label>Tons scheduled</label>
+        <input type="number" name="tons_scheduled" value="6000" min="1" step="any"></div>
+      <div><label>Queue time (hours)</label>
+        <input type="number" name="queue_time_hours" value="3.5" min="0" step="any"></div>
+      <div><label>Equipment availability (0&ndash;1)</label>
+        <input type="number" name="equipment_availability" value="0.9" min="0" max="1" step="0.01"></div>
+      <div><label>Rain (mm)</label>
+        <input type="number" name="rain_mm" value="0" min="0" step="any"></div>
+      <div><label>Harvest season</label>
+        <select name="harvest_season_flag"><option value="0">No</option><option value="1">Yes</option></select></div>
+      <div><label>Operational restriction</label>
+        <select name="operational_restriction_flag"><option value="0">No</option><option value="1">Yes</option></select></div>
+    </div>
+    <button type="submit" id="btn">Predict productivity</button>
+  </form>
+  <div class="result" id="result"></div>
+  <div class="links">
+    <a href="docs">API docs</a><a href="reports">Reports</a><a href="predictions/latest">Latest batch predictions</a>
+  </div>
+</div>
+<script>
+const NUMERIC = {
+  number_of_trains_waiting: "int", number_of_wagons: "int", harvest_season_flag: "int",
+  operational_restriction_flag: "int", tons_scheduled: "float", queue_time_hours: "float",
+  equipment_availability: "float", rain_mm: "float"
+};
+const form = document.getElementById("f");
+const btn = document.getElementById("btn");
+const result = document.getElementById("result");
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  btn.disabled = true; btn.textContent = "Predicting…";
+  const payload = {};
+  for (const [k, v] of new FormData(form).entries()) {
+    if (NUMERIC[k] === "int") payload[k] = parseInt(v, 10);
+    else if (NUMERIC[k] === "float") payload[k] = parseFloat(v);
+    else payload[k] = v;
+  }
+  // Works both directly (/) and behind Traefik's strip-prefix (/ports-mlops/).
+  const base = window.location.pathname.replace(/\/+$/, "");
+  try {
+    const res = await fetch(base + "/predict", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (res.ok) {
+      result.className = "result ok";
+      result.innerHTML =
+        "<h2>Predicted productivity — " + data.terminal_id +
+        " (" + data.forecast_horizon + ")</h2>" +
+        '<div class="pred">' + data.predicted_productivity_tons_hour +
+        ' <span style="font-size:16px">t/h</span></div>' +
+        '<div class="meta">model: ' + data.model_name + " v" + data.model_version + "</div>";
+    } else {
+      result.className = "result err";
+      result.innerHTML = "<h2>Prediction failed</h2><div class=\"meta\">" +
+        (data.detail || res.status) + "</div>";
+    }
+  } catch (err) {
+    result.className = "result err";
+    result.innerHTML = "<h2>Request error</h2><div class=\"meta\">" + err + "</div>";
+  } finally {
+    btn.disabled = false; btn.textContent = "Predict productivity";
+  }
+});
+</script>
+</body>
+</html>"""
+
+
+def _render_predict_form() -> str:
+    """Render the interactive prediction form with terminal options from settings."""
+    terminals = get_settings().expected_terminals
+    options = "".join(f"<option>{html.escape(t)}</option>" for t in terminals)
+    return _PREDICT_FORM_PAGE.replace("{{TERMINAL_OPTIONS}}", options)
+
+
+@app.get("/", response_class=HTMLResponse)
+def index() -> HTMLResponse:
+    """Interactive prediction form: user inputs operational data, gets a prediction."""
+    return HTMLResponse(_render_predict_form())
+
+
 @app.get("/reports", response_class=HTMLResponse)
 @app.get("/reports/{file_path:path}")
 def reports(file_path: str = ""):
