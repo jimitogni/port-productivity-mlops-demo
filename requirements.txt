@@ -1,6 +1,7 @@
 pandas>=2.2,<3
 numpy>=1.26,<3
 scikit-learn>=1.4,<2
+xgboost>=2,<4
 mlflow>=2.13,<4
 evidently>=0.4.30,<0.8
 sqlalchemy>=2.0,<3

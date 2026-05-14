@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -60,7 +61,25 @@ def _load_from_local_registry(alias: str) -> ModelBundle | None:
         import joblib
     except ImportError as exc:
         raise RuntimeError("joblib is required to load the local registered model") from exc
-    model = joblib.load(metadata["model_path"])
+
+    # registry.json stores model_path as an absolute path written by whichever
+    # container ran training (e.g. /opt/airflow/project/models/...), which won't
+    # exist in another container. Reconstruct the path from the current
+    # settings.models_dir, falling back to the stored path then latest_model.joblib.
+    candidate_paths = [
+        settings.models_dir / settings.model_name / str(version) / "model.joblib",
+        Path(metadata["model_path"]),
+        settings.models_dir / "latest_model.joblib",
+    ]
+    model_path = next((p for p in candidate_paths if p.exists()), None)
+    if model_path is None:
+        LOGGER.info("Local registry alias %s: no model file found in %s", alias, candidate_paths)
+        return None
+    try:
+        model = joblib.load(model_path)
+    except Exception as exc:
+        LOGGER.info("Could not load local model %s from %s: %s", alias, model_path, exc)
+        return None
     return ModelBundle(
         model=model,
         model_name=settings.model_name,

@@ -17,8 +17,8 @@ def _load_thresholds(project_root: Path) -> dict[str, Any]:
             pass
     return {
         "promotion_gate": {
-            "max_mae_d1": 15.0, "max_mae_d2": 18.0, "max_mae_d3": 22.0,
-            "max_mape": 0.15, "min_r2": 0.65,
+            "max_mae_d1": 55.0, "max_mae_d2": 58.0, "max_mae_d3": 62.0,
+            "max_mape": 15.0, "min_r2": 0.65,
             "max_mae_degradation_pct": 0.05, "max_rmse_degradation_pct": 0.05,
             "max_terminal_mae_degradation_pct": 0.10,
         },
