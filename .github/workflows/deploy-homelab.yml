@@ -97,7 +97,7 @@ jobs:
               echo "Deploy path: $DEPLOY_PATH"
 
               mkdir -p "$DEPLOY_PATH"
-              tar --touch -xzf /tmp/port-productivity-mlops-demo.tgz -C "$DEPLOY_PATH"
+              tar --touch --no-overwrite-dir --no-same-permissions -xzf /tmp/port-productivity-mlops-demo.tgz -C "$DEPLOY_PATH"
 
               cd "$DEPLOY_PATH"
 
