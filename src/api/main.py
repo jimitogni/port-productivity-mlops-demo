@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from datetime import date
+import html
+from datetime import date, datetime
+from pathlib import Path
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Response
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
 from src.config.settings import get_settings
@@ -82,3 +85,72 @@ def predict(payload: PredictionRequest) -> dict[str, object]:
         "model_name": bundle.model_name,
         "model_version": bundle.model_version,
     }
+
+
+_REPORTS_INDEX_CSS = """
+body { font-family: Arial, sans-serif; margin: 32px; background: #f8f9fa; color: #212529; }
+h1 { color: #003366; margin-bottom: 4px; }
+h2 { color: #003366; font-size: 18px; border-bottom: 2px solid #e9ecef; padding-bottom: 6px;
+     margin-top: 28px; }
+.subtitle { color: #6c757d; font-size: 14px; margin-bottom: 24px; }
+ul { list-style: none; padding: 0; }
+li { padding: 8px 0; border-bottom: 1px solid #e9ecef; }
+a { color: #0066cc; text-decoration: none; }
+a:hover { text-decoration: underline; }
+.size { color: #6c757d; font-size: 12px; margin-left: 8px; }
+.empty { color: #6c757d; font-style: italic; }
+"""
+
+
+def _render_reports_index(base: Path, rel: str) -> str:
+    """Render an HTML directory listing for the reports tree."""
+    # Absolute href base so links work regardless of trailing slash / depth.
+    prefix = get_settings().public_path_prefix.rstrip("/")
+    href_base = f"{prefix}/reports"
+    current = (base / rel).resolve()
+    rows = ""
+    if rel:
+        parent = "/".join(rel.rstrip("/").split("/")[:-1])
+        parent_href = f"{href_base}/{parent}".rstrip("/")
+        rows += f'<li><a href="{parent_href}">⬑ ..</a></li>'
+    entries = sorted(current.iterdir(), key=lambda p: (p.is_file(), p.name))
+    for entry in entries:
+        entry_rel = f"{rel}/{entry.name}".strip("/")
+        href = f"{href_base}/{entry_rel}"
+        if entry.is_dir():
+            rows += f'<li>📁 <a href="{href}">{html.escape(entry.name)}/</a></li>'
+        else:
+            size_kb = entry.stat().st_size / 1024
+            rows += (
+                f'<li>📄 <a href="{href}">{html.escape(entry.name)}</a>'
+                f'<span class="size">{size_kb:.1f} KB</span></li>'
+            )
+    if not rows:
+        rows = '<li class="empty">No reports generated yet.</li>'
+    title = f"/{rel}" if rel else "/"
+    return f"""<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Port Productivity — Reports {html.escape(title)}</title>
+<style>{_REPORTS_INDEX_CSS}</style></head>
+<body>
+  <h1>📦 Port Productivity — Reports</h1>
+  <div class="subtitle">Index of <strong>{html.escape(title)}</strong> &nbsp;|&nbsp;
+    generated {datetime.now().strftime("%Y-%m-%d %H:%M")}</div>
+  <ul>{rows}</ul>
+</body>
+</html>"""
+
+
+@app.get("/reports", response_class=HTMLResponse)
+@app.get("/reports/{file_path:path}")
+def reports(file_path: str = ""):
+    """Browse and download operational + Evidently reports."""
+    base = get_settings().reports_dir.resolve()
+    target = (base / file_path).resolve()
+    if base != target and base not in target.parents:
+        raise HTTPException(status_code=404, detail="Not found")
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="Report not found")
+    if target.is_dir():
+        return HTMLResponse(_render_reports_index(base, file_path.strip("/")))
+    return FileResponse(target)

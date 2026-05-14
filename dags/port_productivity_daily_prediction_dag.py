@@ -24,13 +24,13 @@ if dag:
     )
     def port_productivity_daily_prediction_pipeline():
         @task(task_id="generate_or_load_daily_operational_data")
-        def generate_or_load_daily_operational_data(execution_date: str) -> str:
+        def generate_or_load_daily_operational_data(run_date: str) -> str:
             from src.config.settings import get_settings
             from src.data.generate_synthetic_data import generate_daily_operational_forecast, save_dataset
 
             settings = get_settings()
-            output = settings.data_dir / "processed" / f"daily_operational_{execution_date}.csv"
-            df = generate_daily_operational_forecast(execution_date)
+            output = settings.data_dir / "processed" / f"daily_operational_{run_date}.csv"
+            df = generate_daily_operational_forecast(run_date)
             save_dataset(df, output)
             return str(output)
 
@@ -65,12 +65,12 @@ if dag:
             return {"model_name": bundle.model_name, "model_version": bundle.model_version, "source": bundle.source}
 
         @task(task_id="generate_predictions_for_d_plus_1_d_plus_2_d_plus_3")
-        def generate_predictions_for_d_plus_1_d_plus_2_d_plus_3(execution_date: str, input_path: str, model_info: dict) -> dict:
+        def generate_predictions_for_d_plus_1_d_plus_2_d_plus_3(run_date: str, input_path: str, model_info: dict) -> dict:
             from src.pipelines.daily_prediction_pipeline import run_daily_prediction_pipeline
 
             if not model_info.get("model_version"):
                 raise RuntimeError("Model version missing")
-            return run_daily_prediction_pipeline(execution_date=execution_date, input_path=input_path)
+            return run_daily_prediction_pipeline(execution_date=run_date, input_path=input_path)
 
         @task(task_id="validate_predictions")
         def validate_predictions_task(result: dict) -> dict:

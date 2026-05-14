@@ -88,6 +88,13 @@ class Settings:
             self.models_dir,
         ):
             path.mkdir(parents=True, exist_ok=True)
+            # Keep shared dirs group-writable so containers running under different
+            # UIDs but the common root group (e.g. the API as root and Airflow as
+            # uid 50000) can both write reports/predictions/metrics.
+            try:
+                path.chmod(0o775)
+            except (PermissionError, OSError):
+                pass
 
 
 def get_settings() -> Settings:
