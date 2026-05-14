@@ -4,25 +4,23 @@ on:
   workflow_dispatch:
     inputs:
       mlflow_tracking_uri:
-        description: Optional MLflow tracking URI override
+        description: >-
+          Optional MLflow tracking URI override. Defaults to
+          http://mlflow_server:5000 (reached over the mlflow_default Docker
+          network from the self-hosted homelab runner).
         required: false
         type: string
 
 jobs:
   promote:
-    runs-on: ubuntu-latest
+    # Runs on the homelab so the promotion can reach the MLflow registry on the
+    # mlflow_default Docker network. A GitHub-hosted runner cannot see it.
+    runs-on: self-hosted
     environment: production
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Promote candidate when checks pass
+      - name: Promote Candidate to Champion/Production
         env:
-          MLFLOW_TRACKING_URI: ${{ inputs.mlflow_tracking_uri || secrets.MLFLOW_TRACKING_URI }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: python -m src.models.promote_model
-
+          # Empty -> Makefile falls back to http://mlflow_server:5000
+          DOCKER_MLFLOW_TRACKING_URI: ${{ inputs.mlflow_tracking_uri }}
+        run: make docker-promote-model

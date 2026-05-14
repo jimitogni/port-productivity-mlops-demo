@@ -113,7 +113,10 @@ jobs:
               fi
 
               echo "====BUILDING AND STARTING CONTAINERS===="
-              docker compose --env-file .env -f docker-compose.demo.yml up -d --build --remove-orphans
+              # No --remove-orphans: docker-compose.demo.yml and docker-compose.airflow.yml
+              # share the same Compose project, so --remove-orphans would delete the
+              # Airflow containers on every deploy.
+              docker compose --env-file .env -f docker-compose.demo.yml up -d --build
 
               echo "====CONTAINER STATUS===="
               docker compose --env-file .env -f docker-compose.demo.yml ps
