@@ -7,20 +7,57 @@ on:
         description: >-
           Optional MLflow tracking URI override. Defaults to
           http://mlflow_server:5000 (reached over the mlflow_default Docker
-          network from the self-hosted homelab runner).
+          network from inside the homelab).
         required: false
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   promote:
-    # Runs on the homelab so the promotion can reach the MLflow registry on the
-    # mlflow_default Docker network. A GitHub-hosted runner cannot see it.
-    runs-on: self-hosted
+    # Runs on a GitHub-hosted runner that SSHes into the homelab. The promotion
+    # itself runs there via `make docker-promote-model`, so it reaches the
+    # MLflow registry on the mlflow_default Docker network. A GitHub-hosted
+    # runner cannot see that network directly, hence the SSH hop.
+    runs-on: ubuntu-latest
     environment: production
     steps:
-      - uses: actions/checkout@v4
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HOMELAB_SSH_KEY }}" > ~/.ssh/homelab_key
+          chmod 600 ~/.ssh/homelab_key
+          echo "====CONFIG SSH===="
+          ssh-keyscan -p "${{ secrets.HOMELAB_SSH_PORT }}" "${{ secrets.HOMELAB_HOST }}" >> ~/.ssh/known_hosts
+
       - name: Promote Candidate to Champion/Production
         env:
+          HOMELAB_SSH_PORT: ${{ secrets.HOMELAB_SSH_PORT }}
+          HOMELAB_HOST: ${{ secrets.HOMELAB_HOST }}
+          HOMELAB_USER: ${{ secrets.HOMELAB_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
           # Empty -> Makefile falls back to http://mlflow_server:5000
           DOCKER_MLFLOW_TRACKING_URI: ${{ inputs.mlflow_tracking_uri }}
-        run: make docker-promote-model
+        run: |
+          set -euo pipefail
+
+          if [ -z "$DEPLOY_PATH" ]; then
+            echo "ERROR: DEPLOY_PATH secret is empty or not configured."
+            exit 1
+          fi
+
+          ssh -i ~/.ssh/homelab_key \
+            -o IdentitiesOnly=yes \
+            -p "$HOMELAB_SSH_PORT" \
+            "$HOMELAB_USER@$HOMELAB_HOST" \
+            "DEPLOY_PATH='$DEPLOY_PATH' DOCKER_MLFLOW_TRACKING_URI='$DOCKER_MLFLOW_TRACKING_URI' bash -se" <<'REMOTE'
+              set -euo pipefail
+
+              echo "====PROMOTING MODEL===="
+              echo "Deploy path: $DEPLOY_PATH"
+
+              cd "$DEPLOY_PATH"
+              export DOCKER_MLFLOW_TRACKING_URI
+              make docker-promote-model
+          REMOTE
