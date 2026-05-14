@@ -43,6 +43,7 @@ def _log_mlflow_run(
     training_period: dict[str, str],
     feature_columns_path: Path,
     evidently_report_path: Path | None = None,
+    best_params: dict | None = None,
 ) -> str:
     settings = get_settings()
     run_id = str(uuid.uuid4())
@@ -63,6 +64,8 @@ def _log_mlflow_run(
             mlflow.log_param("dataset_path", dataset_path)
             mlflow.log_param("training_start_date", training_period["start_date"])
             mlflow.log_param("training_end_date", training_period["end_date"])
+            if best_params:
+                mlflow.log_params({k: str(v) for k, v in best_params.items() if v is not None})
             for name, value in baseline_metrics.items():
                 mlflow.log_metric(f"baseline_{name}", value)
             for name, value in metrics.items():
@@ -98,7 +101,7 @@ def run_training_pipeline(data_path: str | Path | None = None, random_state: int
     y_test = test_df[TARGET_COLUMN]
 
     baseline = train_baseline_model(X_train, y_train)
-    candidate = train_candidate_model(X_train, y_train, random_state=random_state)
+    candidate, candidate_type, best_params = train_candidate_model(X_train, y_train, random_state=random_state)
     baseline_predictions = baseline.predict(X_test)
     candidate_predictions = candidate.predict(X_test)
     baseline_metrics = regression_metrics(y_test, baseline_predictions)
@@ -107,7 +110,7 @@ def run_training_pipeline(data_path: str | Path | None = None, random_state: int
     if candidate_metrics["rmse"] <= baseline_metrics["rmse"]:
         best_model = candidate
         best_metrics = candidate_metrics
-        model_type = "RandomForestRegressor"
+        model_type = candidate_type
         best_predictions = candidate_predictions
     else:
         best_model = baseline
@@ -132,6 +135,7 @@ def run_training_pipeline(data_path: str | Path | None = None, random_state: int
         training_period,
         feature_columns_path,
         evidently_report_path=report_path,
+        best_params=best_params,
     )
     local_version = register_local_model(
         best_model,
