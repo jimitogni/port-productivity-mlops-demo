@@ -18,6 +18,12 @@ def load_port_productivity_data(path: str | Path | None = None) -> pd.DataFrame:
 def load_latest_predictions(predictions_dir: str | Path | None = None) -> pd.DataFrame:
     settings = get_settings()
     directory = Path(predictions_dir or settings.predictions_dir)
+    # The prediction pipeline writes latest_predictions.csv as the canonical
+    # most-recent batch; prefer it so the result reflects the last run rather
+    # than whichever dated file sorts last by name.
+    latest = directory / "latest_predictions.csv"
+    if latest.exists():
+        return pd.read_csv(latest)
     files = sorted(directory.glob("predictions_*.csv"))
     if not files:
         return pd.DataFrame()
